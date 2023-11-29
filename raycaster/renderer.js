@@ -59,6 +59,23 @@ const scene = {
     new Sphere([0, -1, 3], 1, [255, 0, 0]),
     new Sphere([2, 0, 4], 1, [0, 0, 255]),
     new Sphere([-2, 0, 4], 1, [0, 255, 0]),
+    new Sphere([0, -5001, 0], 5000, [255, 255, 0]),
+  ],
+  lights: [
+    {
+      type: "ambient",
+      intensity: 0.2,
+    },
+    {
+      type: "point",
+      intensity: 0.6,
+      position: [2, 1, 0],
+    },
+    {
+      type: "directional",
+      intensity: 0.2,
+      direction: [1, 4, 4],
+    },
   ],
 };
 
@@ -66,8 +83,20 @@ function vectorSubtract(v1, v2) {
   return [v1[0] - v2[0], v1[1] - v2[1], v1[2] - v2[2]];
 }
 
+function vectorAdd(v1, v2) {
+  return [v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2]];
+}
+
 function vectorDotProduct(v1, v2) {
   return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
+}
+
+function vectorMultiply(k, v) {
+  return [k * v[0], k * v[1], k * v[2]];
+}
+
+function vectorLength(v) {
+  return Math.sqrt(vectorDotProduct(v, v));
 }
 
 function traceRay(O, D, tmin, tmax) {
@@ -89,7 +118,32 @@ function traceRay(O, D, tmin, tmax) {
     return BACKGROUND_COLOR;
   }
 
-  return closestSphere.color;
+  const P = vectorAdd(O, vectorMultiply(closestT, D));
+  let N = vectorSubtract(P, closestSphere.center);
+  N = vectorMultiply(1 / vectorLength(N), N);
+
+  return vectorMultiply(computeLighting(P, N), closestSphere.color);
+}
+
+function computeLighting(P, N) {
+  let i = 0;
+  scene.lights.forEach((light) => {
+    let L = null;
+    if (light.type === "ambient") {
+      i += light.intensity;
+    } else if (light.type === "directional") {
+      L = light.direction;
+    } else {
+      L = vectorSubtract(light.position, P);
+    }
+    if (L) {
+      const dotNL = vectorDotProduct(N, L);
+      if (dotNL >= 0) {
+        i += light.intensity * (dotNL / (vectorLength(N) * vectorLength(L)));
+      }
+    }
+  });
+  return i;
 }
 
 function canvasToViewport(x, y) {
