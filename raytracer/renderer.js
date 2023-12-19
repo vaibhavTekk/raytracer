@@ -104,6 +104,32 @@ class Sphere {
   }
 }
 
+class Vector {
+  constructor(x, y, z) {
+    this.v = [x, y, z];
+  }
+
+  add(vec) {
+    return this(this.v[0] + vec.v[0], this.v[1] + vec.v[1], this.v[2] + vec.v[2]);
+  }
+
+  subtract(vec) {
+    return this(this.v[0] - vec.v[0], this.v[1] - vec.v[1], this.v[2] - vec.v[2]);
+  }
+
+  multiply(k) {
+    return this(k * this.v[0], k * this.v[1], k * this.v[2]);
+  }
+
+  dot(vec) {
+    return this.v[0] * vec.v[0] + this.v[1] * vec.v[1] + this.v[2] * vec.v[2];
+  }
+
+  length() {
+    return Math.sqrt(this.dot(this));
+  }
+}
+
 const scene = {
   spheres: [
     new Sphere([0, -1, 3], 1, [255, 0, 0], 500, 0.2),
@@ -245,6 +271,7 @@ function computeLighting(P, N, V, s) {
   });
   return i;
 }
+
 function canvasToViewport(x, y) {
   const vx = x * (viewportSize / canvasWidth);
   const vy = y * (viewportSize / canvasHeight);
@@ -260,7 +287,7 @@ function Render() {
   for (let i = -canvasWidth / 2; i < canvasWidth / 2; i++) {
     for (let j = -canvasHeight / 2; j < canvasHeight / 2; j++) {
       const D = matrixMultiply(cameraRotation, canvasToViewport(i, j));
-      const color = traceRay(cameraOrigin, D, 1, Infinity, 10);
+      const color = traceRay(cameraOrigin, D, 1, Infinity, 3);
       putPixel(i, j, color);
     }
   }
