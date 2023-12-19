@@ -19,17 +19,66 @@ function putPixel(x, y, color) {
   pixels[offset + 3] = 255;
 }
 
+function degrees_to_radians(degrees) {
+  var pi = Math.PI;
+  return degrees * (pi / 180);
+}
+
+function multiplyMatrices(m1, m2) {
+  var result = [];
+  for (var i = 0; i < m1.length; i++) {
+    result[i] = [];
+    for (var j = 0; j < m2[0].length; j++) {
+      var sum = 0;
+      for (var k = 0; k < m1[0].length; k++) {
+        sum += m1[i][k] * m2[k][j];
+      }
+      result[i][j] = sum;
+    }
+  }
+  return result;
+}
+
+function CalculateRotationMatrix(yaw, pitch, roll) {
+  const yawRad = degrees_to_radians(yaw);
+  const pitchRad = degrees_to_radians(pitch);
+  const rollRad = degrees_to_radians(roll);
+  const Rz = [
+    [Math.cos(yawRad), -1 * Math.sin(yawRad), 0],
+    [Math.sin(yawRad), Math.cos(yawRad), 0],
+    [0, 0, 1],
+  ];
+  const Rx = [
+    [1, 0, 0],
+    [0, Math.cos(rollRad), -1 * Math.sin(rollRad)],
+    [0, Math.sin(rollRad), Math.cos(rollRad)],
+  ];
+  const Ry = [
+    [Math.cos(pitchRad), 0, Math.sin(pitchRad)],
+    [0, 1, 0],
+    [-1 * Math.sin(pitchRad), 0, Math.cos(pitchRad)],
+  ];
+
+  return multiplyMatrices(Rz, multiplyMatrices(Ry, Rx));
+}
+
+let yaw = 0; // in degrees Rz;
+let pitch = 0;
+let roll = 0;
+
 const viewportSize = 1;
 const viewportDistance = 1;
-const cameraOrigin = [0, 0, 0];
+let cameraOrigin = [0, 0, 0];
+let cameraRotation = CalculateRotationMatrix(yaw, pitch, roll);
 
 const BACKGROUND_COLOR = [0, 0, 0];
 
 class Sphere {
-  constructor(center, radius, color) {
+  constructor(center, radius, color, specular) {
     this.center = center;
     this.radius = radius;
     this.color = color;
+    this.specular = specular;
   }
 
   rayIntersects(O, D) {
@@ -56,10 +105,10 @@ class Sphere {
 
 const scene = {
   spheres: [
-    new Sphere([0, -1, 3], 1, [255, 0, 0]),
-    new Sphere([2, 0, 4], 1, [0, 0, 255]),
-    new Sphere([-2, 0, 4], 1, [0, 255, 0]),
-    new Sphere([0, -5001, 0], 5000, [255, 255, 0]),
+    new Sphere([0, -1, 3], 1, [255, 0, 0], 500),
+    new Sphere([2, 0, 4], 1, [0, 0, 255], 500),
+    new Sphere([-2, 0, 4], 1, [0, 255, 0], 10),
+    new Sphere([0, -5001, 0], 5000, [255, 255, 0], 1000),
   ],
   lights: [
     {
@@ -99,7 +148,17 @@ function vectorLength(v) {
   return Math.sqrt(vectorDotProduct(v, v));
 }
 
-function traceRay(O, D, tmin, tmax) {
+function matrixMultiply(m, v) {
+  let result = [0, 0, 0];
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      result[i] += v[j] * m[i][j];
+    }
+  }
+  return result;
+}
+
+function getClosestSphere(O, D, tmin, tmax) {
   let closestT = Infinity;
   let closestSphere = null;
   scene.spheres.forEach((sphere) => {
@@ -114,6 +173,11 @@ function traceRay(O, D, tmin, tmax) {
     }
   });
 
+  return [closestT, closestSphere];
+}
+
+function traceRay(O, D, tmin, tmax) {
+  const [closestT, closestSphere] = getClosestSphere(O, D, tmin, tmax);
   if (!closestSphere) {
     return BACKGROUND_COLOR;
   }
@@ -122,10 +186,10 @@ function traceRay(O, D, tmin, tmax) {
   let N = vectorSubtract(P, closestSphere.center);
   N = vectorMultiply(1 / vectorLength(N), N);
 
-  return vectorMultiply(computeLighting(P, N), closestSphere.color);
+  return vectorMultiply(computeLighting(P, N, vectorMultiply(-1, D), closestSphere.specular), closestSphere.color);
 }
 
-function computeLighting(P, N) {
+function computeLighting(P, N, V, s) {
   let i = 0;
   scene.lights.forEach((light) => {
     let L = null;
@@ -137,9 +201,26 @@ function computeLighting(P, N) {
       L = vectorSubtract(light.position, P);
     }
     if (L) {
+      //shadows
+
+      const [shadowT, shadowSphere] = getClosestSphere(P, L, 0.01, Infinity);
+      if (shadowSphere) {
+        // defer lighting if the light ray intersects with another object (ie the other object casts a shadow)
+        return;
+      }
+      // diffusion
       const dotNL = vectorDotProduct(N, L);
       if (dotNL >= 0) {
         i += light.intensity * (dotNL / (vectorLength(N) * vectorLength(L)));
+      }
+
+      //specular
+      if (s !== -1) {
+        const R = vectorSubtract(vectorMultiply(2 * vectorDotProduct(N, L), N), L);
+        const dotRV = vectorDotProduct(R, V);
+        if (dotRV >= 0) {
+          i += light.intensity * Math.pow(dotRV / (vectorLength(R) * vectorLength(V)), s);
+        }
       }
     }
   });
@@ -157,12 +238,56 @@ function updateCanvas() {
   ctx.putImageData(imgData, 0, 0);
 }
 
-for (let i = -canvasWidth / 2; i < canvasWidth / 2; i++) {
-  for (let j = -canvasHeight / 2; j < canvasHeight / 2; j++) {
-    const D = canvasToViewport(i, j);
-    const color = traceRay(cameraOrigin, D, 1, Infinity);
-    putPixel(i, j, color);
+function Render() {
+  for (let i = -canvasWidth / 2; i < canvasWidth / 2; i++) {
+    for (let j = -canvasHeight / 2; j < canvasHeight / 2; j++) {
+      const D = matrixMultiply(cameraRotation, canvasToViewport(i, j));
+      const color = traceRay(cameraOrigin, D, 1, Infinity);
+      putPixel(i, j, color);
+    }
   }
+  updateCanvas();
 }
 
-updateCanvas();
+Render();
+
+document.getElementById("yawRange").addEventListener("change", (e) => {
+  // console.log(e.target.value);
+  yaw = e.target.value;
+  cameraRotation = CalculateRotationMatrix(yaw, pitch, roll);
+  Render();
+});
+
+document.getElementById("pitchRange").addEventListener("change", (e) => {
+  // console.log(e.target.value);
+  pitch = e.target.value;
+  cameraRotation = CalculateRotationMatrix(yaw, pitch, roll);
+  Render();
+});
+
+document.getElementById("rollRange").addEventListener("change", (e) => {
+  // console.log(e.target.value);
+  roll = e.target.value;
+  cameraRotation = CalculateRotationMatrix(yaw, pitch, roll);
+  Render();
+});
+
+document.getElementById("forward").addEventListener("click", () => {
+  cameraOrigin[2] += 0.1;
+  Render();
+});
+
+document.getElementById("backward").addEventListener("click", () => {
+  cameraOrigin[2] -= 0.1;
+  Render();
+});
+
+document.getElementById("left").addEventListener("click", () => {
+  cameraOrigin[0] -= 0.1;
+  Render();
+});
+
+document.getElementById("right").addEventListener("click", () => {
+  cameraOrigin[0] += 0.1;
+  Render();
+});
