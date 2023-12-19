@@ -74,11 +74,12 @@ let cameraRotation = CalculateRotationMatrix(yaw, pitch, roll);
 const BACKGROUND_COLOR = [0, 0, 0];
 
 class Sphere {
-  constructor(center, radius, color, specular) {
+  constructor(center, radius, color, specular, reflective) {
     this.center = center;
     this.radius = radius;
     this.color = color;
     this.specular = specular;
+    this.reflective = reflective;
   }
 
   rayIntersects(O, D) {
@@ -105,10 +106,10 @@ class Sphere {
 
 const scene = {
   spheres: [
-    new Sphere([0, -1, 3], 1, [255, 0, 0], 500),
-    new Sphere([2, 0, 4], 1, [0, 0, 255], 500),
-    new Sphere([-2, 0, 4], 1, [0, 255, 0], 10),
-    new Sphere([0, -5001, 0], 5000, [255, 255, 0], 1000),
+    new Sphere([0, -1, 3], 1, [255, 0, 0], 500, 0.2),
+    new Sphere([2, 0, 4], 1, [0, 0, 255], 500, 0.3),
+    new Sphere([-2, 0, 4], 1, [0, 255, 0], 10, 0.4),
+    new Sphere([0, -5001, 0], 5000, [255, 255, 0], 1000, 0.5),
   ],
   lights: [
     {
@@ -158,6 +159,11 @@ function matrixMultiply(m, v) {
   return result;
 }
 
+function ReflectRay(L, N) {
+  const Ln = vectorMultiply(vectorDotProduct(L, N), N);
+  return vectorSubtract(vectorMultiply(2, Ln), L);
+}
+
 function getClosestSphere(O, D, tmin, tmax) {
   let closestT = Infinity;
   let closestSphere = null;
@@ -176,7 +182,7 @@ function getClosestSphere(O, D, tmin, tmax) {
   return [closestT, closestSphere];
 }
 
-function traceRay(O, D, tmin, tmax) {
+function traceRay(O, D, tmin, tmax, recursion_depth) {
   const [closestT, closestSphere] = getClosestSphere(O, D, tmin, tmax);
   if (!closestSphere) {
     return BACKGROUND_COLOR;
@@ -186,7 +192,19 @@ function traceRay(O, D, tmin, tmax) {
   let N = vectorSubtract(P, closestSphere.center);
   N = vectorMultiply(1 / vectorLength(N), N);
 
-  return vectorMultiply(computeLighting(P, N, vectorMultiply(-1, D), closestSphere.specular), closestSphere.color);
+  const local_color = vectorMultiply(
+    computeLighting(P, N, vectorMultiply(-1, D), closestSphere.specular),
+    closestSphere.color
+  );
+
+  const r = closestSphere.reflective;
+  if (recursion_depth <= 0 || r <= 0) {
+    return local_color;
+  }
+
+  const R = ReflectRay(vectorMultiply(-1, D), N);
+  const reflected_color = traceRay(P, R, 0.01, Infinity, recursion_depth - 1);
+  return vectorAdd(vectorMultiply(1 - r, local_color), vectorMultiply(r, reflected_color));
 }
 
 function computeLighting(P, N, V, s) {
@@ -216,7 +234,8 @@ function computeLighting(P, N, V, s) {
 
       //specular
       if (s !== -1) {
-        const R = vectorSubtract(vectorMultiply(2 * vectorDotProduct(N, L), N), L);
+        const R = ReflectRay(L, N);
+        // const R = vectorSubtract(vectorMultiply(2 * vectorDotProduct(N, L), N), L);
         const dotRV = vectorDotProduct(R, V);
         if (dotRV >= 0) {
           i += light.intensity * Math.pow(dotRV / (vectorLength(R) * vectorLength(V)), s);
@@ -226,7 +245,6 @@ function computeLighting(P, N, V, s) {
   });
   return i;
 }
-
 function canvasToViewport(x, y) {
   const vx = x * (viewportSize / canvasWidth);
   const vy = y * (viewportSize / canvasHeight);
@@ -242,7 +260,7 @@ function Render() {
   for (let i = -canvasWidth / 2; i < canvasWidth / 2; i++) {
     for (let j = -canvasHeight / 2; j < canvasHeight / 2; j++) {
       const D = matrixMultiply(cameraRotation, canvasToViewport(i, j));
-      const color = traceRay(cameraOrigin, D, 1, Infinity);
+      const color = traceRay(cameraOrigin, D, 1, Infinity, 10);
       putPixel(i, j, color);
     }
   }
